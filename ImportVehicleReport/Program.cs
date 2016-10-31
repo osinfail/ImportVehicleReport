@@ -2,8 +2,11 @@
 using System.Configuration;
 using System.IO;
 using System.Linq;
+using System.Security.AccessControl;
+using System.Web.Script.Serialization;
 using ImportVehicleReport.Report;
 using Microsoft.Office.Interop.Outlook;
+using Newtonsoft.Json;
 
 namespace ImportVehicleReport
 {
@@ -153,8 +156,12 @@ namespace ImportVehicleReport
                s =>
                    s.Contains(
                        "Reset Application Pool"));
-            item = (MailItem)app.CreateItemFromTemplate(tempPath, Type.Missing);
-            report.ResetApplicationPoolStatus = item.Subject.Contains("Successfully");
+
+            if (!string.IsNullOrEmpty(tempPath))
+            {
+                item = (MailItem)app.CreateItemFromTemplate(tempPath, Type.Missing);
+                report.ResetApplicationPoolStatus = item.Subject.Contains("Successfully");
+            }
 
             //Export Info
             tempPath = Array.Find(emails,
@@ -162,6 +169,12 @@ namespace ImportVehicleReport
                    s.Contains(
                        "Export INFO"));
             item = (MailItem)app.CreateItemFromTemplate(tempPath, Type.Missing);
+            int hour = item.ReceivedTime.Hour;
+            int minute = item.ReceivedTime.Minute;
+
+            int startHour = Int32.Parse(ConfigurationManager.AppSettings["StartHour"]);
+            report.ExecutionTime = string.Format("{0:00}h{1:00}m", hour - startHour, minute);
+
             report.XmlPdvFile = item.Subject.Contains("successfully");
 
             //Import Vehicle Status
@@ -192,6 +205,10 @@ namespace ImportVehicleReport
             report.Tec3HStatus = tec3h;
 
             GenerateHtml(report);
+
+            if(File.Exists("Report.json"))
+                File.Delete("Report.json");
+            File.WriteAllText("Report.json", JsonConvert.SerializeObject(report, Formatting.Indented));
         }
 
         static void GenerateHtml(Report.Report report)
@@ -213,6 +230,8 @@ namespace ImportVehicleReport
             htmlTemplate = htmlTemplate.Replace("[Tec3H09]", report.Tec3HStatus.PhotoStatus.PhotoCount.ToString());
             htmlTemplate = htmlTemplate.Replace("[Tec3H10]", report.Tec3HStatus.PhotoStatus.FailCount.ToString());
             htmlTemplate = htmlTemplate.Replace("[Tec3H11]", report.Tec3HStatus.VehicleFailedArgus);
+            htmlTemplate = htmlTemplate.Replace("[Tec3H12]", report.Tec3HStatus.NotWellFormedXmlCount);
+            htmlTemplate = htmlTemplate.Replace("[Tec3H13]", report.Tec3HStatus.NotFoundPos);
 
             htmlTemplate = htmlTemplate.Replace("[PVO01]", report.PlanetVoStatus.FtpSuccess.ToString());
             htmlTemplate = htmlTemplate.Replace("[PVO02]", report.PlanetVoStatus.FtpFailure.ToString());
@@ -224,11 +243,16 @@ namespace ImportVehicleReport
             htmlTemplate = htmlTemplate.Replace("[PVO08]", report.PlanetVoStatus.PhotoStatus.VehicleToTransfer.ToString());
             htmlTemplate = htmlTemplate.Replace("[PVO09]", report.PlanetVoStatus.PhotoStatus.PhotoCount.ToString());
             htmlTemplate = htmlTemplate.Replace("[PVO10]", report.PlanetVoStatus.PhotoStatus.FailCount.ToString());
+            htmlTemplate = htmlTemplate.Replace("[PVO11]", report.PlanetVoStatus.NotWellFormedXmlCount);
+            htmlTemplate = htmlTemplate.Replace("[PVO12]", report.PlanetVoStatus.NotFoundPos);
 
             htmlTemplate = htmlTemplate.Replace("[STATUS06]", report.HavasStatus ? "OK" : "KO");
             htmlTemplate = htmlTemplate.Replace("[STATUS08]", report.LuceneStatus ? "OK" : "KO");
             htmlTemplate = htmlTemplate.Replace("[STATUS09]", report.ResetApplicationPoolStatus ? "OK" : "KO");
-            for (int i = 1; i <= 10; i++)
+            htmlTemplate = htmlTemplate.Replace("[STATUS11]", report.PdvNameChange.Replace("\n", "\n<br/>"));
+            htmlTemplate = htmlTemplate.Replace("[STATUS12]", report.ExecutionTime);
+
+            for (int i = 1; i <= 11; i++)
             {
                 htmlTemplate = htmlTemplate.Replace(string.Format("[STATUS{0:00}]", i), "&nbsp;");
             }
